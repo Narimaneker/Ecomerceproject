@@ -195,7 +195,8 @@ def order_summary(request):
 from django.shortcuts import render
 
 def checkout_success(request):
-    return render(request, 'checkout_success.html')
+    order = Order.objects.filter(user=request.user, ordered=True).last()
+    return render(request, 'checkout_success.html', {'order': order})
 
 def checkout_cancel(request):
     return render(request, 'checkout_cancel.html')
@@ -290,3 +291,70 @@ def create_checkout_session(request):
         return JsonResponse({'id': session.id})
 
     return JsonResponse({'error': 'Invalid request'}, status=400)
+
+
+
+from django.http import HttpResponse
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.platypus import Table, TableStyle
+from reportlab.lib import colors
+from django.shortcuts import get_object_or_404
+from .models import Order
+
+def generate_invoice(request, order_id):
+    order = get_object_or_404(Order, id=order_id, user=request.user, ordered=True)
+
+    response = HttpResponse(content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="invoice_{order.id}.pdf"'
+
+    # Create a PDF canvas
+    p = canvas.Canvas(response, pagesize=letter)
+    width, height = letter
+
+    p.setFont("Helvetica-Bold", 16)
+    p.drawString(200, height - 50, "INVOICE")
+
+    # Order details
+    p.setFont("Helvetica", 12)
+    p.drawString(50, height - 80, f"Order ID: {order.id}")
+    p.drawString(50, height - 100, f"Customer: {order.user.username}")
+    p.drawString(50, height - 120, f"Date: {order.ordered_date.strftime('%Y-%m-%d')}")
+
+    # Table Data (Headers)
+    data = [["Product", "Quantity", "Price", "Total"]]
+
+    # Add items to the table
+    for item in order.items.all():
+        data.append([
+            item.item.title,  # Product Name
+            str(item.quantity),  # Quantity
+            f"${item.item.price}",  # Price per item
+            f"${item.get_total_item_price()}"  # Total price per item
+        ])
+
+    # Add total row
+    data.append(["", "", "Total:", f"${order.get_total_price()}"])
+
+    # Create table
+    table = Table(data, colWidths=[200, 100, 100, 100])
+
+    # Add styles (Borders, Colors, Alignment)
+    style = TableStyle([
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),  # Borders for all cells
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),  # Header background
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),  # Header text color
+        ('ALIGN', (1, 1), (-1, -1), 'CENTER'),  # Center align all columns except first
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),  # Bold headers
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 10),  # Padding for headers
+    ])
+    table.setStyle(style)
+
+    # Draw the table on the PDF
+    table.wrapOn(p, width, height)
+    table.drawOn(p, 50, height - 300)  # Position the table
+
+    # Save and return the response
+    p.showPage()
+    p.save()
+    return response
