@@ -302,7 +302,7 @@ from reportlab.lib import colors
 from django.shortcuts import get_object_or_404
 from .models import Order
 
-def generate_invoice(request, order_id):
+def generate_facture(request, order_id):
     order = get_object_or_404(Order, id=order_id, user=request.user, ordered=True)
 
     response = HttpResponse(content_type='application/pdf')
